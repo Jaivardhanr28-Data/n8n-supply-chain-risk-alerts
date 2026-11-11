@@ -1,0 +1,207 @@
+{
+  "name": "Capstone 2 — Weekly Risk Report",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a97704e2-d263-4f8f-979d-106bf313dea6",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  (SELECT COUNT(*) FROM risk_articles WHERE NOT needs_review)                          AS articles_scored,\n  (SELECT COUNT(*) FROM risk_articles WHERE NOT needs_review AND risk_level = 'HIGH')   AS high_risk,\n  (SELECT COUNT(*) FROM risk_articles WHERE NOT needs_review AND risk_level = 'MEDIUM') AS medium_risk,\n  (SELECT COUNT(*) FROM risk_articles WHERE NOT needs_review AND risk_level = 'LOW')    AS low_risk,\n  (SELECT COUNT(*) FROM risk_articles WHERE needs_review)                               AS needs_review,\n  (SELECT COUNT(*) FROM risk_articles WHERE alert_sent)                                 AS alerts_sent,\n  (SELECT COALESCE(json_agg(t), '[]') FROM v_kpi_by_item t)      AS by_item,\n  (SELECT COALESCE(json_agg(t), '[]') FROM v_kpi_by_region t)    AS by_region,\n  (SELECT COALESCE(json_agg(t), '[]') FROM v_kpi_by_category t)  AS by_category,\n  (SELECT COALESCE(json_agg(t), '[]') FROM v_kpi_weekly_trend t) AS weekly_trend,\n  (SELECT COALESCE(json_agg(t), '[]') FROM (\n       SELECT watch_item, risk_score, risk_level, title, url\n       FROM risk_articles WHERE NOT needs_review\n       ORDER BY risk_score DESC, published_at DESC LIMIT 3) t)  AS top_articles;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        240,
+        0
+      ],
+      "id": "643fd72b-99df-4732-8736-4ea46085745b",
+      "name": "Get KPIs (SQL)",
+      "credentials": {
+        "postgres": {
+          "id": "L3j0qnXh7kGqnEWg",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format KPIs — Capstone 2: Weekly Risk Report\n// Turns the one SQL row into readable text tables. The AI only ever sees THIS text.\nconst k = $input.first().json;\nconst arr = v => Array.isArray(v) ? v : (typeof v === 'string' ? JSON.parse(v || '[]') : []);\nconst byItem = arr(k.by_item), byRegion = arr(k.by_region), byCat = arr(k.by_category);\nconst trend = arr(k.weekly_trend), top = arr(k.top_articles);\nconst today = new Date().toISOString().slice(0, 10);\n\nconst lines = [];\nlines.push(`WEEKLY SUPPLY RISK KPIs (generated ${today}, source: SQL on risk_articles)`);\nlines.push('');\nlines.push(`Articles scored: ${k.articles_scored} | HIGH: ${k.high_risk} | MEDIUM: ${k.medium_risk} | LOW: ${k.low_risk} | Needs review: ${k.needs_review} | Alerts sent: ${k.alerts_sent}`);\nlines.push('');\nlines.push('By watch item (articles / HIGH / avg score / max score):');\nbyItem.forEach(r => lines.push(`- ${r.watch_item}: ${r.articles} / ${r.high_risk} / ${r.avg_score} / ${r.max_score}`));\nlines.push('');\nlines.push('By region (articles / HIGH / avg score):');\nbyRegion.forEach(r => lines.push(`- ${r.region}: ${r.articles} / ${r.high_risk} / ${r.avg_score}`));\nlines.push('');\nlines.push('By risk category, relevant only (articles / HIGH):');\nif (byCat.length === 0) lines.push('- none');\nbyCat.forEach(r => lines.push(`- ${r.risk_category}: ${r.articles} / ${r.high_risk}`));\nlines.push('');\nlines.push('Weekly trend (week start: articles / HIGH / week-over-week change in HIGH):');\ntrend.forEach(r => lines.push(`- ${r.week_start}: ${r.articles} / ${r.high_risk} / ${r.wow_change === null ? 'n/a' : r.wow_change}`));\nlines.push('');\nlines.push('Top 3 articles by risk score:');\ntop.forEach(r => lines.push(`- [${r.risk_score} ${r.risk_level}] ${r.watch_item}: ${r.title}`));\n\nreturn [{ json: { kpi_text: lines.join('\\n'), report_date: today, high_risk: Number(k.high_risk) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        0
+      ],
+      "id": "6a8384cc-28a2-4a46-9abc-56dca5c0a592",
+      "name": "Format KPIs"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "    You are writing the weekly supply-chain risk summary for the procurement manager of an Indian online electronics retailer.\n\n   Use ONLY the facts and numbers in the KPI DATA below. Do NOT calculate anything new: no percentages, totals, averages or differences that are not already written there. Write any other quantity in words, not digits.   Overall risk level rule: if HIGH is 0 and MEDIUM is 0, the overall risk is LOW. If HIGH is 0 and MEDIUM is above 0, it is MEDIUM. If HIGH is above 0, it is HIGH.\n   Use watch item names and region names EXACTLY as written in the KPI DATA. Never group them into new labels (such as APAC or Asia).\nIf every watch item has zero HIGH and zero MEDIUM articles, say no item needs urgent attention and suggest continuing routine monitoring.\n\n   Write 3 to 4 short sentences:\n   1) overall risk level this week (say clearly if there are no HIGH-risk articles),\n   2) which watch items or regions need the most attention,\n   3) one practical next step for procurement.\n   No headings, no bullet points, max 100 words.\n\n   KPI DATA:\n   {{ $json.kpi_text }}",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        688,
+        0
+      ],
+      "id": "00527d40-7fba-4f76-9b60-c7ba06ddad53",
+      "name": "AI summary",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        688,
+        192
+      ],
+      "id": "b5b3b5bb-663c-49d9-838d-34523dd0a507",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "gIOkxK502HHimfqi",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Number check — Capstone 2: Weekly Risk Report  (guardrail: numbers must come from SQL, never from the AI)\n// Every number in the AI summary must appear in the SQL KPI text. Otherwise the summary is withheld.\nconst kpi = $('Format KPIs').first().json;\nconst summary = String($input.first().json.text || '').trim();\n\nconst nums = s => (String(s).match(/\\d+(?:[.,]\\d+)*/g) || [])\n  .map(n => n.replace(/,/g, ''))\n  .map(n => String(Number(n)));                     // \"85.0\" -> \"85\", \"1,03,892\" -> \"103892\"\nconst allowed = new Set(nums(kpi.kpi_text));\nconst found = nums(summary);\nconst unverified = [...new Set(found.filter(n => !allowed.has(n)))];\nconst verified = unverified.length === 0;\n\nconst shown = verified\n  ? summary\n  : `⚠ AI summary withheld: it contained numbers not found in the SQL results (${unverified.join(', ')}). See the KPI tables below.`;\n\nconst body = [\n  `Weekly Supply Risk Report: ${kpi.report_date}`,\n  '',\n  'SUMMARY (AI-written, numbers verified against SQL)',\n  shown,\n  '',\n  '----------------------------------------',\n  kpi.kpi_text,\n  '----------------------------------------',\n  `Number check: ${verified ? 'PASSED' : 'FAILED'} (${found.length} numbers in summary, ${unverified.length} unverified)`,\n  'Supply Risk Scanner (n8n + Gemini + Supabase).'\n].join('\\n');\n\nreturn [{ json: {\n  subject: `Weekly Supply Risk Report: ${kpi.report_date} (HIGH: ${kpi.high_risk})`,\n  body, verified, unverified_numbers: unverified.join(', ')\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        0
+      ],
+      "id": "f331cb1c-ee13-4911-a20c-d4d9543bea4a",
+      "name": "Number check"
+    },
+    {
+      "parameters": {
+        "fromEmail": "jaivardhanr28@gmail.com",
+        "toEmail": "jaivardhanr28@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1264,
+        0
+      ],
+      "id": "9db9d418-7661-4faf-87a4-00715432d451",
+      "name": "Send weekly report",
+      "webhookId": "e49a1b1a-b87b-427d-bb8b-15141f0085ea",
+      "credentials": {
+        "smtp": {
+          "id": "G4qyt1Ck3NOXRF9p",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get KPIs (SQL)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get KPIs (SQL)": {
+      "main": [
+        [
+          {
+            "node": "Format KPIs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format KPIs": {
+      "main": [
+        [
+          {
+            "node": "AI summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI summary",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI summary": {
+      "main": [
+        [
+          {
+            "node": "Number check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Number check": {
+      "main": [
+        [
+          {
+            "node": "Send weekly report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "418d3a6a-1559-4617-83b1-69c56702d638",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a2f262c93d1e37dbf22efa037e9b82de585d48177f903ed2ddf120defd0f4a23"
+  },
+  "nodeGroups": [],
+  "id": "SP5HXIa5fv4du1Gw",
+  "tags": []
+}

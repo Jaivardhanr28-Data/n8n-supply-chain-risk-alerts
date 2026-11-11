@@ -1,0 +1,14 @@
+You are writing the weekly supply-chain risk summary for the procurement manager of an Indian online electronics retailer.
+
+Use ONLY the facts and numbers in the KPI DATA below. Do NOT calculate anything new: no percentages, totals, averages or differences that are not already written there. Write any other quantity in words, not digits.   Overall risk level rule: if HIGH is 0 and MEDIUM is 0, the overall risk is LOW. If HIGH is 0 and MEDIUM is above 0, it is MEDIUM. If HIGH is above 0, it is HIGH.
+Use watch item names and region names EXACTLY as written in the KPI DATA. Never group them into new labels (such as APAC or Asia).
+If every watch item has zero HIGH and zero MEDIUM articles, say no item needs urgent attention and suggest continuing routine monitoring.
+
+Write 3 to 4 short sentences:
+1) overall risk level this week (say clearly if there are no HIGH-risk articles),
+2) which watch items or regions need the most attention,
+3) one practical next step for procurement.
+No headings, no bullet points, max 100 words.
+
+KPI DATA:
+{{ $json.kpi_text }}
